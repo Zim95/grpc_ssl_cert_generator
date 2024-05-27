@@ -9,17 +9,49 @@ For any inquiries, these are the emails of the Authors:
 
 # built-ins
 import os
+import logging
+import sys
+import time
+
+# third party
+import kubernetes
 
 
 # CONSTANTS
-CERT_DIRECTORY: str = "./cert"
 CERTS_LIST: list = [
     "ca.crt", "ca.key", "ca.srl",
     "server.csr", "server.key", "server.crt",
     "client.csr", "client.key", "client.crt",
 ]
 CLEANUP_LIST: list = ["server.csr", "client.csr"]
-TIMEOUT: int = 365  # 365 days
+
+
+# kubernetes client
+kubernetes.config.load_incluster_config()
+kcli: kubernetes.client.CoreV1Api = kubernetes.client.CoreV1Api()
+
+
+# logging setup
+logger: logging.Logger = logging.getLogger(__name__)  # create logger
+stream_handler: logging.StreamHandler = logging.StreamHandler(stream=sys.stdout)  # create stream handler
+formatter: logging.Formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')  # create formatter
+stream_handler.setFormatter(formatter)  # set formatter for handler
+logger.addHandler(hdlr=stream_handler)  # add handler
+logger.setLevel(logging.DEBUG)  # add level
+
+
+# ENVs
+CERT_DIRECTORY: str = os.getenv("CERT_DIRECTORY", "./cert")
+TIMEOUT: int = int(os.getenv("TIMEOUT", 365*24*60*60))  # 365 days
+SECRET_NAME: str = os.getenv("SECRET_NAME", "grpc_certs")
+NAMESPACE: str = os.getenv("NAMESPACE", "default")
+logger.info(
+    f"Environments => "
+    f"CERT_DIRECTORY: {CERT_DIRECTORY}, "
+    f"TIMEOUT: {TIMEOUT}, "
+    f"SECRET_NAME: {SECRET_NAME}, "
+    f"NAMESPACE: {NAMESPACE}"
+)
 
 
 def execute_command(command: str) -> None:
@@ -32,8 +64,10 @@ def execute_command(command: str) -> None:
     Author: Namah Shrestha
     """
     try:
+        logger.info(f"Executing command: {command}")
         os.system(command)
     except Exception as e:
+        logger.error(f"Error while executing command: {e}")
         raise Exception(e)
 
 
@@ -49,7 +83,9 @@ def create_cert_directory(cert_directory: str) -> None:
     try:
         if not os.path.exists(cert_directory):
             os.makedirs(cert_directory)
+        logger.info(f"Successfully created directory: {cert_directory}")
     except Exception as e:
+        logger.error(f"Error while creating cert directory: {e}")
         raise Exception(e)
 
 
@@ -66,8 +102,9 @@ def remove_files(cert_directory: str, file_list: list) -> None:
         fname: str = f"{cert_directory}/{file}"
         try:
             os.remove(fname)
+            logger.info(f"{fname} removed!")
         except Exception:
-            print(f"{fname} not found!")
+            logger.error(f"{fname} not found!")
             continue
 
 
@@ -89,6 +126,7 @@ def create_ca(cert_directory: str, common_name: str) -> None:
     try:
         execute_command(command)
     except Exception as e:
+        logger.error(f"Error in creating CA: {e}")
         raise Exception(e)
 
 
@@ -110,6 +148,7 @@ def create_client_csr(cert_directory: str, common_name: str) -> None:
     try:
         execute_command(command)
     except Exception as e:
+        logger.error(f"Error in creating client CSR: {e}")
         raise Exception(e)
 
 
@@ -141,6 +180,7 @@ def create_client_cert(cert_directory: str, timeout: int) -> None:
     try:
         execute_command(command)
     except Exception as e:
+        logger.error(f"Error in creating client cert: {e}")
         raise Exception(e)
 
 
@@ -162,6 +202,7 @@ def create_server_csr(cert_directory: str, common_name: str) -> None:
     try:
         execute_command(command)
     except Exception as e:
+        logger.error(f"Error in creating server CSR: {e}")
         raise Exception(e)
 
 
@@ -193,20 +234,87 @@ def create_server_cert(cert_directory: str, timeout: int) -> None:
     try:
         execute_command(command)
     except Exception as e:
+        logger.error(f"Error in creating server cert: {e}")
         raise Exception(e)
 
 
-def create_kubernetes_secrets() -> None:
-    pass
-
-
-def remove_old_secrets() -> None:
+def create_kubernetes_secrets(cert_directory: str, secret_name: str, namespace: str) -> None:
     """
-    Remove old kubernetes secret certificates.
+    Create the kubernetes secrets using kubernetes client in cluster config.
+    Replace the secret if it already exists.
+    :params:
+        :cert_directory: Certificate directory.
+        :secret_name: The name of the secret.
+        :namespace: The namespace where the secret is to be deployed.
+    :returns: None
 
     Author: Namah Shrestha
     """
-    pass
+    def read_cert(cert_name: str) -> bytes:
+        """
+        Read certificate and return certificate in bytes.
+        :params:
+            :cert_name: str: The name of the certificate.
+        :returns: The certificate data in bytes.
+
+        Author: Namah Shrestha
+        """
+        try:
+            with open(f"{cert_directory}/{cert_name}", "rb") as fr:
+                data: bytes = fr.read()
+            return data
+        except FileNotFoundError as fnfe:
+            logger.error(f"Cannot find certificate! {cert_name}")
+            raise FileNotFoundError(fnfe)
+    
+    try:
+        ca_crt: bytes = read_cert("ca.crt")
+        server_crt: bytes = read_cert("server.crt")
+        server_key: bytes = read_cert("server.key")
+        client_crt: bytes = read_cert("client.crt")
+        client_key: bytes = read_cert("client.key")
+        secret: kubernetes.client.V1Secret = kubernetes.client.V1Secret(
+            metadata=kubernetes.client.V1ObjectMeta(name=secret_name),
+            data={
+                "ca.crt": ca_crt,
+                "server.crt": server_crt,
+                "server.key": server_key,
+                "client.crt": client_crt,
+                "client.key": client_key
+            }
+        )
+        kcli.create_namespaced_secret(namespace=namespace, body=secret)
+        logger.info(f"Secret {secret_name} created successfully.")
+    except FileNotFoundError as fnfe:
+        raise FileNotFoundError(fnfe)
+    except kubernetes.client.rest.ApiException as kcrae:
+        if kcrae.status == 409:  # conflict secret already exists
+            kcli.replace_namespaced_secret(name=secret_name, namespace=namespace, body=secret)
+            logger.info(f"Secret {secret_name} replaced successfully.")
+        else:
+            logger.info(f"Error in creating kubernetes secret! {kcrae}")
+            raise
+
+
+def remove_old_secrets(secret_name: str, namespace: str) -> None:
+    """
+    Remove old kubernetes secret certificates.
+    :params:
+        :secret_name: str: Name of the secret.
+        :namespace: str: Kubernetes namespace.
+    :returns: None
+
+    Author: Namah Shrestha
+    """
+    try:
+        kcli.delete_namespaced_secret(name=secret_name, namespace=namespace)
+        logger.info(f"Secret {secret_name} deleted successfully.")
+    except kubernetes.client.rest.ApiException as kcrae:
+        if kcrae.status == 404:
+            logger.info(f"Secret {secret_name} not found in namespace {namespace}.")
+        else:
+            logger.error(f"Error in removing old kubernetes secret! {kcrae}")
+            raise
 
 
 def main() -> None:
@@ -220,6 +328,8 @@ def main() -> None:
     6. Create Server CSR.
     7. Create Server Cert.
     8. Remove unnecessary files.
+    9. Remove old Kubernetes secrets.
+    10. Create new Kubernetes secrets.
 
     Author: Namah Shrestha
     """
@@ -232,10 +342,13 @@ def main() -> None:
         create_server_csr(cert_directory=CERT_DIRECTORY, common_name="localhost")
         create_server_cert(cert_directory=CERT_DIRECTORY, timeout=TIMEOUT)
         remove_files(cert_directory=CERT_DIRECTORY, file_list=CLEANUP_LIST)
+        remove_old_secrets(secret_name=SECRET_NAME, namespace=NAMESPACE)
+        create_kubernetes_secrets(cert_directory=CERT_DIRECTORY, secret_name=SECRET_NAME, namespace=NAMESPACE)
     except Exception as e:
         raise Exception(e)
 
 
 if __name__ == "__main__":
-    main()
-
+    while True:
+        main()
+        time.sleep(TIMEOUT)
