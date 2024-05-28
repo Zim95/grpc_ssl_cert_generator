@@ -55,6 +55,6 @@ spec:
         - name: NAMESPACE
           value: "browseterm"
         - name: SECRET_NAME
-          value: "grpc_certs"
+          value: "grpc-certs"
         - name: TIMEOUT
           value: "31536000"

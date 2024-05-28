@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Image details
-IMAGE_NAME=grpc_ssl_generator
+IMAGE_NAME=grpc_ssl_generator_debug
 IMAGE_TAG=latest
 NAMESPACE=browseterm
 CERT_DIRECTORY=cert

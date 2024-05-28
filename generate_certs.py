@@ -12,6 +12,7 @@ import os
 import logging
 import sys
 import time
+import base64
 
 # third party
 import kubernetes
@@ -43,7 +44,7 @@ logger.setLevel(logging.DEBUG)  # add level
 # ENVs
 CERT_DIRECTORY: str = os.getenv("CERT_DIRECTORY", "./cert")
 TIMEOUT: int = int(os.getenv("TIMEOUT", 365*24*60*60))  # 365 days
-SECRET_NAME: str = os.getenv("SECRET_NAME", "grpc_certs")
+SECRET_NAME: str = os.getenv("SECRET_NAME", "grpc-certs")
 NAMESPACE: str = os.getenv("NAMESPACE", "default")
 logger.info(
     f"Environments => "
@@ -276,11 +277,11 @@ def create_kubernetes_secrets(cert_directory: str, secret_name: str, namespace: 
         secret: kubernetes.client.V1Secret = kubernetes.client.V1Secret(
             metadata=kubernetes.client.V1ObjectMeta(name=secret_name),
             data={
-                "ca.crt": ca_crt,
-                "server.crt": server_crt,
-                "server.key": server_key,
-                "client.crt": client_crt,
-                "client.key": client_key
+                "ca.crt": base64.b64encode(ca_crt).decode('utf-8'),
+                "server.crt": base64.b64encode(server_crt).decode('utf-8'),
+                "server.key": base64.b64encode(server_key).decode('utf-8'),
+                "client.crt": base64.b64encode(client_crt).decode('utf-8'),
+                "client.key": base64.b64encode(client_key).decode('utf-8')
             }
         )
         kcli.create_namespaced_secret(namespace=namespace, body=secret)

@@ -1,0 +1,60 @@
+# service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secrets-service-account
+  namespace: browseterm
+---
+# cluster-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: secrets-manager
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "delete", "update", "get", "list", "watch"]
+---
+# cluster-role-binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: secrets-manager-binding
+subjects:
+- kind: ServiceAccount
+  name: secrets-service-account
+  namespace: browseterm
+roleRef:
+  kind: ClusterRole
+  name: secrets-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-cert-generator-debug
+  namespace: browseterm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpc-cert-generator-debug
+  template:
+    metadata:
+      labels:
+        app: grpc-cert-generator-debug
+    spec:
+      serviceAccountName: secrets-service-account
+      containers:
+      - name: grpc-cert-generator-debug
+        image: zim95/grpc_ssl_generator_debug:latest
+        env:
+        - name: CERT_DIRECTORY
+          value: "./certs"
+        - name: NAMESPACE
+          value: "browseterm"
+        - name: SECRET_NAME
+          value: "grpc-certs"
+        - name: TIMEOUT
+          value: "31536000"
