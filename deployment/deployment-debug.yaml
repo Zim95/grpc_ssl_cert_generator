@@ -49,6 +49,7 @@ spec:
       containers:
       - name: grpc-cert-generator-debug
         image: zim95/grpc_ssl_generator_debug:latest
+        imagePullPolicy: Always
         env:
         - name: CERT_DIRECTORY
           value: "./certs"

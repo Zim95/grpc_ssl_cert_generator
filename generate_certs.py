@@ -27,11 +27,6 @@ CERTS_LIST: list = [
 CLEANUP_LIST: list = ["server.csr", "client.csr"]
 
 
-# kubernetes client
-kubernetes.config.load_incluster_config()
-kcli: kubernetes.client.CoreV1Api = kubernetes.client.CoreV1Api()
-
-
 # logging setup
 logger: logging.Logger = logging.getLogger(__name__)  # create logger
 stream_handler: logging.StreamHandler = logging.StreamHandler(stream=sys.stdout)  # create stream handler
@@ -43,6 +38,7 @@ logger.setLevel(logging.DEBUG)  # add level
 
 # ENVs
 CERT_DIRECTORY: str = os.getenv("CERT_DIRECTORY", "./cert")
+CERT_EXPIRATION: int = 365
 TIMEOUT: int = int(os.getenv("TIMEOUT", 365*24*60*60))  # 365 days
 SECRET_NAME: str = os.getenv("SECRET_NAME", "grpc-certs")
 NAMESPACE: str = os.getenv("NAMESPACE", "default")
@@ -153,11 +149,12 @@ def create_client_csr(cert_directory: str, common_name: str) -> None:
         raise Exception(e)
 
 
-def create_client_cert(cert_directory: str, timeout: int) -> None:
+def create_client_cert(cert_directory: str, expiration: int) -> None:
     """
     Create the Client Certificate in the cert_directory.
     :params:
         :cert_directory: str: Certificate directory.
+        :expiration: int: Expiration time in days.
     :returns: None
 
     Author: Namah Shrestha
@@ -176,7 +173,7 @@ def create_client_cert(cert_directory: str, timeout: int) -> None:
         f"-CA {cert_directory}/ca.crt "
         f"-CAkey {cert_directory}/ca.key "
         f"-CAcreateserial -out {cert_directory}/client.crt "
-        f"-days {timeout}"
+        f"-days {expiration}"
     )
     try:
         execute_command(command)
@@ -207,11 +204,12 @@ def create_server_csr(cert_directory: str, common_name: str) -> None:
         raise Exception(e)
 
 
-def create_server_cert(cert_directory: str, timeout: int) -> None:
+def create_server_cert(cert_directory: str, expiration: int) -> None:
     """
     Create the Server Certificate in the cert_directory.
     :params:
         :cert_directory: str: Certificate directory.
+        :expiration: int: Expiration time in days.
     :returns: None
 
     Author: Namah Shrestha
@@ -230,7 +228,7 @@ def create_server_cert(cert_directory: str, timeout: int) -> None:
         f"-CA {cert_directory}/ca.crt "
         f"-CAkey {cert_directory}/ca.key "
         f"-CAcreateserial -out {cert_directory}/server.crt "
-        f"-days {timeout}"
+        f"-days {expiration}"
     )
     try:
         execute_command(command)
@@ -239,14 +237,20 @@ def create_server_cert(cert_directory: str, timeout: int) -> None:
         raise Exception(e)
 
 
-def create_kubernetes_secrets(cert_directory: str, secret_name: str, namespace: str) -> None:
+def create_kubernetes_secrets(
+    kcli: kubernetes.client.CoreV1Api,
+    cert_directory: str,
+    secret_name: str,
+    namespace: str
+) -> None:
     """
     Create the kubernetes secrets using kubernetes client in cluster config.
     Replace the secret if it already exists.
     :params:
-        :cert_directory: Certificate directory.
-        :secret_name: The name of the secret.
-        :namespace: The namespace where the secret is to be deployed.
+        :kcli: kubernetes.client.CoreV1Api: Kubernetes Client.
+        :cert_directory: str: Certificate directory.
+        :secret_name: str: The name of the secret.
+        :namespace: str: The namespace where the secret is to be deployed.
     :returns: None
 
     Author: Namah Shrestha
@@ -297,10 +301,11 @@ def create_kubernetes_secrets(cert_directory: str, secret_name: str, namespace: 
             raise
 
 
-def remove_old_secrets(secret_name: str, namespace: str) -> None:
+def remove_old_secrets(kcli: kubernetes.client.CoreV1Api, secret_name: str, namespace: str) -> None:
     """
     Remove old kubernetes secret certificates.
     :params:
+        :kcli: kubernetes.client.CoreV1Api: Kubernetes Client.
         :secret_name: str: Name of the secret.
         :namespace: str: Kubernetes namespace.
     :returns: None
@@ -339,12 +344,21 @@ def main() -> None:
         remove_files(cert_directory=CERT_DIRECTORY, file_list=CERTS_LIST)
         create_ca(cert_directory=CERT_DIRECTORY, common_name="grpc_ca")
         create_client_csr(cert_directory=CERT_DIRECTORY, common_name="client")
-        create_client_cert(cert_directory=CERT_DIRECTORY, timeout=TIMEOUT)
+        create_client_cert(cert_directory=CERT_DIRECTORY, expiration=CERT_EXPIRATION)
         create_server_csr(cert_directory=CERT_DIRECTORY, common_name="localhost")
-        create_server_cert(cert_directory=CERT_DIRECTORY, timeout=TIMEOUT)
-        remove_files(cert_directory=CERT_DIRECTORY, file_list=CLEANUP_LIST)
-        remove_old_secrets(secret_name=SECRET_NAME, namespace=NAMESPACE)
-        create_kubernetes_secrets(cert_directory=CERT_DIRECTORY, secret_name=SECRET_NAME, namespace=NAMESPACE)
+        create_server_cert(cert_directory=CERT_DIRECTORY, expiration=CERT_EXPIRATION)
+        remove_files(cert_directory=CERT_DIRECTORY, file_list=CLEANUP_LIST)# kubernetes client
+
+        # kubernetes actions
+        kubernetes.config.load_incluster_config()
+        kcli: kubernetes.client.CoreV1Api = kubernetes.client.CoreV1Api()
+        remove_old_secrets(kcli=kcli, secret_name=SECRET_NAME, namespace=NAMESPACE)
+        create_kubernetes_secrets(
+            kcli=kcli,
+            cert_directory=CERT_DIRECTORY,
+            secret_name=SECRET_NAME,
+            namespace=NAMESPACE
+        )
     except Exception as e:
         raise Exception(e)
 
