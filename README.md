@@ -1,5 +1,6 @@
 ## grpc_ssl_cert_generator
 Client and Server Certificate generation for GRPC communication.
+This code re-runs after the timeout. It deletes the old certificates and regenerates the certificates.
 
 ### How to run
 1. Supported only for UNIX terminals at the moment.
