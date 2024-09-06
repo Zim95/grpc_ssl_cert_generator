@@ -24,15 +24,19 @@ Client and Server Certificate generation for GRPC communication.
     ```
     git clone https://github.com/Zim95/grpc_ssl_cert_generator.git
     ```
-4. Run this `make` command:
+4. First get the image on your local docker:
+    ```
+    make builddebug
+    ```
+5. Run this `make` command:
     ```
     make deploydebug
     ```
-5. Exec into the pod:
+6. Exec into the pod:
     ```
     kubectl exec -it <podname> -n browseterm -- bash
     ```
-6. You can edit the file using `vim` or run the file.
+7. You can edit the file using `vim` or run the file.
     ```
     python generate_certs.py
     ```
@@ -40,7 +44,42 @@ Client and Server Certificate generation for GRPC communication.
     ```
     vim generate_certs.py
     ```
-7. To stop/delete the pods and roles run this command:
+8. Once you run the file, follow the steps in `How to check if its working` section.
+9. To stop/delete the pods and roles run this command:
     ```
     make teardowndebug
+    ```
+
+### How to check if its working
+1. Check if the secrets are generated.
+    ```
+    kubectl get secrets -n browseterm
+    ```
+
+    You should see this:
+    ```
+    NAME         TYPE     DATA   AGE
+    grpc-certs   Opaque   5      19s
+    ```
+2. You can also describe the secrets and see what files exist.
+    ```
+    kubectl describe secret grpc-certs -n browseterm
+    ```
+
+    You should see this:
+    ```
+    Name:         grpc-certs
+    Namespace:    browseterm
+    Labels:       <none>
+    Annotations:  <none>
+
+    Type:  Opaque
+
+    Data
+    ====
+    ca.crt:      1107 bytes
+    client.crt:  985 bytes
+    client.key:  1704 bytes
+    server.crt:  989 bytes
+    server.key:  1704 bytes
     ```
